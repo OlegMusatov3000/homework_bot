@@ -1,11 +1,34 @@
-...
+import logging
+import os
+from http import HTTPStatus
+import sys
+
+import requests
+from dotenv import load_dotenv
+import telegram
+import time
+
+from exceptions import (
+    KeyHomeWorkNameNotFound,
+    KeyStatusNotFound,
+    KeyStatusUnexpectedValue,
+)
 
 load_dotenv()
 
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    handlers=(
+        logging.StreamHandler(sys.stdout),
+    )
+)
 
-PRACTICUM_TOKEN = ...
-TELEGRAM_TOKEN = ...
-TELEGRAM_CHAT_ID = ...
+logger = logging.getLogger(__name__)
+
+PRACTICUM_TOKEN = os.getenv('PRACTICUM_TOKEN')
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 RETRY_PERIOD = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
@@ -18,48 +41,104 @@ HOMEWORK_VERDICTS = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
+homework_last = None
+
 
 def check_tokens():
-    ...
+    """Проверяем переменные окружения."""
+    for token in [
+        PRACTICUM_TOKEN,
+        TELEGRAM_CHAT_ID,
+        TELEGRAM_TOKEN
+    ]:
+        if not token:
+            logger.critical(f'Переменная {token} не найдена!')
+            raise ValueError(f'Переменная {token} не найдена!')
 
 
 def send_message(bot, message):
-    ...
+    """Функция отправки сообщения."""
+    try:
+        bot.send_message(TELEGRAM_CHAT_ID, message)
+        logger.debug('Отправлено!')
+    except telegram.TelegramError as error:
+        logger.error(error)
 
 
 def get_api_answer(timestamp):
-    ...
+    """Делаем запрос к API Яндекса."""
+    payload = {'from_date': timestamp}
+    try:
+        response = requests.get(ENDPOINT, headers=HEADERS, params=payload)
+        logger.debug('отправка запроса прошла успешно')
+    except requests.exceptions.RequestException:
+        logger.critical('Ошибка подключения')
+        raise ConnectionError('Ошибка подключения')
+    if response.status_code != HTTPStatus.OK:
+        logger.critical('Ошибка HTTP')
+        raise requests.exceptions.HTTPError('Ошибка HTTP')
+    else:
+        response = response.json()
+        return response
 
 
 def check_response(response):
-    ...
+    """Проверяем ответ API."""
+    if not isinstance(response, dict):
+        logger.critical('Тип ответа API не соответствует ожиданиям')
+        raise TypeError('Тип ответа API не соответствует ожиданиям')
+    homeworks = response.get('homeworks')
+    if not isinstance(homeworks, list):
+        logger.critical('Тип ответа API не соответствует ожиданиям')
+        raise TypeError('Тип ответа API не соответствует ожиданиям')
+    return homeworks[0]
 
 
-def parse_status(homework):
-    ...
-
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+def parse_status(homeworks):
+    """Проверяем статус домашней работы."""
+    global homework_last
+    if not homeworks:
+        logger.error('Новых домашек не найдено')
+        return None
+    homework_name = homeworks.get('homework_name')
+    if homework_name is None:
+        logger.critical('Ключ "homework_name" отсутствует')
+        raise KeyHomeWorkNameNotFound
+    homework_status = homeworks.get('status')
+    if homework_status is None:
+        logger.critical('Ключ "status" отсутствует')
+        raise KeyStatusNotFound
+    if homework_status not in HOMEWORK_VERDICTS:
+        logger.critical('Неожиданный статус домашней работы')
+        raise KeyStatusUnexpectedValue
+    verdict = HOMEWORK_VERDICTS[homework_status]
+    if verdict == homework_last:
+        return None
+    else:
+        homework_last == verdict
+        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def main():
     """Основная логика работы бота."""
-
-    ...
-
+    check_tokens()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
-
-    ...
-
     while True:
         try:
-
-            ...
-
+            response = get_api_answer(timestamp)
+            homeworks = check_response(response)
+            message = parse_status(homeworks)
         except Exception as error:
-            message = f'Сбой в работе программы: {error}'
-            ...
-        ...
+            logger.error(error)
+            message = f' произошла ошибка {error}'
+        finally:
+            if message is not None:
+                send_message(bot, message)
+                time.sleep(RETRY_PERIOD)
+            else:
+                logger.debug('Домашку не проверили')
+                time.sleep(RETRY_PERIOD)
 
 
 if __name__ == '__main__':
