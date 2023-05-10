@@ -8,3 +8,11 @@ class KeyStatusNotFound(Exception):
 
 class KeyStatusUnexpectedValue(Exception):
     pass
+
+
+class KeyCurrentDateNotFound(Exception):
+    pass
+
+
+class HomeWorkNotFound(Exception):
+    pass

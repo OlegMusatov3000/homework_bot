@@ -2,16 +2,19 @@ import logging
 import os
 from http import HTTPStatus
 import sys
+import time
 
 import requests
 from dotenv import load_dotenv
 import telegram
-import time
+import json
 
 from exceptions import (
     KeyHomeWorkNameNotFound,
     KeyStatusNotFound,
     KeyStatusUnexpectedValue,
+    KeyCurrentDateNotFound,
+    HomeWorkNotFound,
 )
 
 load_dotenv()
@@ -71,52 +74,53 @@ def get_api_answer(timestamp):
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=payload)
         logger.debug('отправка запроса прошла успешно')
-    except requests.exceptions.RequestException:
-        logger.critical('Ошибка подключения')
-        raise ConnectionError('Ошибка подключения')
-    if response.status_code != HTTPStatus.OK:
-        logger.critical('Ошибка HTTP')
-        raise requests.exceptions.HTTPError('Ошибка HTTP')
-    else:
+        if response.status_code != HTTPStatus.OK:
+            raise requests.exceptions.HTTPError('Ошибка HTTP')
         response = response.json()
-        return response
+    except json.decoder.JSONDecodeError:
+        raise ValueError('Ответ не может быть получен в формате JSON')
+    except requests.exceptions.RequestException:
+        raise ConnectionError('Ошибка подключения')
+    return response
 
 
 def check_response(response):
     """Проверяем ответ API."""
-    if not isinstance(response, dict):
-        logger.critical('Тип ответа API не соответствует ожиданиям')
-        raise TypeError('Тип ответа API не соответствует ожиданиям')
-    homeworks = response.get('homeworks')
-    if not isinstance(homeworks, list):
-        logger.critical('Тип ответа API не соответствует ожиданиям')
-        raise TypeError('Тип ответа API не соответствует ожиданиям')
-    return homeworks[0]
+    try:
+        if not isinstance(response, dict):
+            raise TypeError('Тип ответа API не соответствует ожиданиям')
+        homeworks = response.get('homeworks')
+        if not isinstance(homeworks, list):
+            raise TypeError('Тип ответа API не соответствует ожиданиям')
+        timestamp = response.get('current_date')
+        if timestamp is None:
+            raise KeyCurrentDateNotFound('Ключ "current_date" не найден')
+        if not isinstance(timestamp, int):
+            raise TypeError('Тип ответа API не соответствует ожиданиям')
+        homework = homeworks[0]
+    except HomeWorkNotFound('Домашка не найдена'):
+        homework = None
+    return homework, timestamp
 
 
-def parse_status(homeworks):
+def parse_status(homework):
     """Проверяем статус домашней работы."""
     global homework_last
-    if not homeworks:
-        logger.error('Новых домашек не найдено')
+    if homework is None:
         return None
-    homework_name = homeworks.get('homework_name')
+    homework_name = homework.get('homework_name')
     if homework_name is None:
-        logger.critical('Ключ "homework_name" отсутствует')
         raise KeyHomeWorkNameNotFound
-    homework_status = homeworks.get('status')
+    homework_status = homework.get('status')
     if homework_status is None:
-        logger.critical('Ключ "status" отсутствует')
         raise KeyStatusNotFound
     if homework_status not in HOMEWORK_VERDICTS:
-        logger.critical('Неожиданный статус домашней работы')
         raise KeyStatusUnexpectedValue
     verdict = HOMEWORK_VERDICTS[homework_status]
     if verdict == homework_last:
         return None
-    else:
-        homework_last == verdict
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    homework_last == verdict
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def main():
@@ -127,7 +131,7 @@ def main():
     while True:
         try:
             response = get_api_answer(timestamp)
-            homeworks = check_response(response)
+            homeworks, timestamp = check_response(response)
             message = parse_status(homeworks)
         except Exception as error:
             logger.error(error)
