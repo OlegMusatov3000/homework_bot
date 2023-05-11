@@ -10,10 +10,10 @@ Python 3.9
 ```
 pip install -r requirements.txt
 ``` 
-- В папке с файлом homework.py выполните команду:
+- В папке с файлом homework.py выполните команды:
 ```
 pip install -r requirements.txt
-``` 
 python3 homework.py
+``` 
 ### Автор
 Олег Мусатов

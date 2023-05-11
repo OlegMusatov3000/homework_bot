@@ -3,18 +3,17 @@ import os
 from http import HTTPStatus
 import sys
 import time
+import json
 
 import requests
 from dotenv import load_dotenv
 import telegram
-import json
 
 from exceptions import (
     KeyHomeWorkNameNotFound,
     KeyStatusNotFound,
     KeyStatusUnexpectedValue,
     KeyCurrentDateNotFound,
-    HomeWorkNotFound,
 )
 
 load_dotenv()
@@ -86,20 +85,19 @@ def get_api_answer(timestamp):
 
 def check_response(response):
     """Проверяем ответ API."""
-    try:
-        if not isinstance(response, dict):
-            raise TypeError('Тип ответа API не соответствует ожиданиям')
-        homeworks = response.get('homeworks')
-        if not isinstance(homeworks, list):
-            raise TypeError('Тип ответа API не соответствует ожиданиям')
-        timestamp = response.get('current_date')
-        if timestamp is None:
-            raise KeyCurrentDateNotFound('Ключ "current_date" не найден')
-        if not isinstance(timestamp, int):
-            raise TypeError('Тип ответа API не соответствует ожиданиям')
+    if not isinstance(response, dict):
+        raise TypeError('Тип ответа API не соответствует ожиданиям')
+    homeworks = response.get('homeworks')
+    if not isinstance(homeworks, list):
+        raise TypeError('Тип ответа API не соответствует ожиданиям')
+    timestamp = response.get('current_date')
+    if timestamp is None:
+        raise KeyCurrentDateNotFound('Ключ "current_date" не найден')
+    if not isinstance(timestamp, int):
+        raise TypeError('Тип ответа API не соответствует ожиданиям')
+    homework = None
+    if len(homeworks):
         homework = homeworks[0]
-    except HomeWorkNotFound('Домашка не найдена'):
-        homework = None
     return homework, timestamp
 
 

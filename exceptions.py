@@ -12,7 +12,3 @@ class KeyStatusUnexpectedValue(Exception):
 
 class KeyCurrentDateNotFound(Exception):
     pass
-
-
-class HomeWorkNotFound(Exception):
-    pass
